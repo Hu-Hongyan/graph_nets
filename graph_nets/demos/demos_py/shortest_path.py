@@ -227,6 +227,15 @@ def graph_to_input_target(graph):
     input_graph.graph["features"] = np.array([0.0])
     target_graph.graph["features"] = np.array([solution_length], dtype=float)
 
+    # remove 'solution' attributes from edges and nodes of input_graph
+    for u,v,solution in input_graph.edges.data('solution'):
+        if solution:
+            input_graph.edges[u,v]['solution'] = False
+
+    for u, solution in input_graph.nodes.data('solution'):
+        if solution:
+            input_graph.nodes[u]['solution'] = False
+
     return input_graph, target_graph
 
 
@@ -251,12 +260,51 @@ def generate_networkx_graphs(rand, num_examples, num_nodes_min_max, theta):
     target_graphs = []
     graphs = []
     for _ in range(num_examples):
+        # graph = (combined_graph, mst_graph, geo_graph)[0] = combined_graph
         graph = generate_graph(rand, num_nodes_min_max, theta=theta)[0]
+
+        # fig = plt.figure(40, figsize=(20, 4))
+        # fig.clf()
+        # ax = fig.add_subplot(1, 5, 1)
+        # pos = get_node_dict(graph, "pos")
+        # plotter = GraphPlotter(ax, graph, pos)
+        # plotter.draw_graph_with_solution()
+        # ax.set_title("generate Graph")
+
         graph = add_shortest_path(rand, graph)
+
+        # ax = fig.add_subplot(1, 5, 2)
+        # pos = get_node_dict(graph, "pos")
+        # plotter = GraphPlotter(ax, graph, pos)
+        # plotter.draw_graph_with_solution()
+        # ax.set_title("add_shortest_path Graph")
+
         input_graph, target_graph = graph_to_input_target(graph)
+
         input_graphs.append(input_graph)
         target_graphs.append(target_graph)
         graphs.append(graph)
+
+        # ax = fig.add_subplot(1, 5, 3)
+        # pos = get_node_dict(input_graph, "pos")
+        # plotter = GraphPlotter(ax, input_graph, pos)
+        # plotter.draw_graph_with_solution()
+        # ax.set_title("input_graph Graph")
+        #
+        # ax = fig.add_subplot(1, 5, 4)
+        # pos = get_node_dict(target_graph, "pos")
+        # plotter = GraphPlotter(ax, target_graph, pos)
+        # plotter.draw_graph_with_solution()
+        # ax.set_title("target_graph Graph")
+        #
+        # ax = fig.add_subplot(1, 5, 5)
+        # pos = get_node_dict(graph, "pos")
+        # plotter = GraphPlotter(ax, graph, pos)
+        # plotter.draw_graph_with_solution()
+        # ax.set_title("graph Graph")
+        #
+        # plt.show()
+
     return input_graphs, target_graphs, graphs
 
 
@@ -308,7 +356,7 @@ def create_feed_dict(rand, batch_size, num_nodes_min_max, theta, input_ph,
     input_graphs = utils_np.networkxs_to_graphs_tuple(inputs)
     target_graphs = utils_np.networkxs_to_graphs_tuple(targets)
     feed_dict = {input_ph: input_graphs, target_ph: target_graphs}
-    return feed_dict, raw_graphs
+    return feed_dict, raw_graphs, inputs
 
 
 def compute_accuracy(target, output, use_nodes=True, use_edges=False):
@@ -584,7 +632,8 @@ def visualize_graphs():
     seed = 1  # @param{type: 'integer'}
     rand = np.random.RandomState(seed=seed)
 
-    num_examples = 15  # @param{type: 'integer'}
+    #num_examples = 15  # @param{type: 'integer'}
+    num_examples = 3  # @param{type: 'integer'}
     # Large values (1000+) make trees. Try 20-60 for good non-trees.
     global theta
     theta = 20  # @param{type: 'integer'}
@@ -593,12 +642,16 @@ def visualize_graphs():
     input_graphs, target_graphs, graphs = generate_networkx_graphs(
         rand, num_examples, num_nodes_min_max, theta)
 
-    num = min(num_examples, 16)
+    #num = min(num_examples, 16)
+    # print three graphs list
+    num = min(num_examples, 16) * 3
     w = 3
     h = int(np.ceil(num / w))
+
     fig = plt.figure(40, figsize=(w * 4, h * 4))
     fig.clf()
-    for j, graph in enumerate(graphs):
+    #for j, graph in enumerate(graphs):
+    for j, graph in enumerate(input_graphs + target_graphs + graphs):
         ax = fig.add_subplot(h, w, j + 1)
         pos = get_node_dict(graph, "pos")
         plotter = GraphPlotter(ax, graph, pos)
@@ -792,7 +845,7 @@ def run_training():
 
     for iteration in range(last_iteration, num_training_iterations):
         last_iteration = iteration
-        feed_dict, _ = create_feed_dict(rand, batch_size_tr, num_nodes_min_max_tr,
+        feed_dict, _, _ = create_feed_dict(rand, batch_size_tr, num_nodes_min_max_tr,
                                         theta, input_ph, target_ph)
         train_values = sess.run({
             "step": step_op,
@@ -806,8 +859,8 @@ def run_training():
         if elapsed_since_last_log > log_every_seconds:
             last_log_time = the_time
 
-            global raw_graphs
-            feed_dict, raw_graphs = create_feed_dict(
+            global raw_graphs, input_graphs
+            feed_dict, raw_graphs, input_graphs = create_feed_dict(
                 rand, batch_size_ge, num_nodes_min_max_ge, theta, input_ph, target_ph)
             global test_values
             test_values = sess.run({
@@ -899,17 +952,23 @@ def visualize_result():
         zip(*(utils_np.graphs_tuple_to_data_dicts(test_values["outputs"][i])
               for i in step_indices)))
     h = min(num_graphs, max_graphs_to_plot)
-    w = num_steps_to_plot + 1
+    # add 1w to show the input_graphs
+    #w = num_steps_to_plot + 1
+    w = num_steps_to_plot + 1 + 1
     fig = plt.figure(101, figsize=(18, h * 3))
     fig.clf()
     ncs = []
-    for j, (graph, target, output) in enumerate(zip(raw_graphs, targets, outputs)):
+    # input_graphs
+    #for j, (graph, target, output) in enumerate(zip(raw_graphs, targets, outputs)):
+    for j, (input_graph, graph, target, output) in enumerate(zip(input_graphs, raw_graphs, targets, outputs)):
         if j >= h:
             break
         pos = get_node_dict(graph, "pos")
         ground_truth = target["nodes"][:, -1]
         # Ground truth.
-        iax = j * (1 + num_steps_to_plot) + 1
+        #iax = j * (1 + num_steps_to_plot) + 1
+        # add 1 offset for input
+        iax = j * (2 + num_steps_to_plot) + 1
         ax = fig.add_subplot(h, w, iax)
         plotter = GraphPlotter(ax, graph, pos)
         color = {}
@@ -927,9 +986,20 @@ def visualize_result():
         ax.grid(None)
         ax.set_title("Ground truth\nSolution length: {}".format(
             plotter.solution_length))
+
+        #input
+        iax = j * (2 + num_steps_to_plot) + 2
+        ax = fig.add_subplot(h, w, iax)
+        pos = get_node_dict(input_graph, "pos")
+        plotter = GraphPlotter(ax, input_graph, pos)
+        plotter.draw_graph_with_solution()
+        ax.set_title("input_graph Graph")
+
         # Prediction.
         for k, outp in enumerate(output):
-            iax = j * (1 + num_steps_to_plot) + 2 + k
+            # add 1 offset for input
+            # iax = j * (1 + num_steps_to_plot) + 2 + k
+            iax = j * (2 + num_steps_to_plot) + 3 + k
             ax = fig.add_subplot(h, w, iax)
             plotter = GraphPlotter(ax, graph, pos)
             color = {}
